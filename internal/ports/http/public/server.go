@@ -3,6 +3,7 @@ package public
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/100bench/avito_tech_assignment_autumn_2025/internal/entities"
 	"github.com/go-chi/chi/v5"
@@ -326,8 +327,8 @@ func (s *Server) respondWithError(w http.ResponseWriter, code int, errCode strin
 }
 
 type deactivateMembersRequest struct {
-    TeamName string   `json:"team_name"`
-    UserIDs  []string `json:"user_ids"`
+	TeamName string   `json:"team_name"`
+	UserIDs  []string `json:"user_ids"`
 }
 
 type DeactivateMembersResponse struct {
@@ -336,51 +337,85 @@ type DeactivateMembersResponse struct {
 }
 
 func (s *Server) handleDeactivateMembers(w http.ResponseWriter, r *http.Request) {
-    var req deactivateMembersRequest
-    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-        s.respondWithError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
-        return
-    }
+	var req deactivateMembersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
 
-    // Новое поведение: пустой список — это валидный noop
-    if len(req.UserIDs) == 0 {
-        w.WriteHeader(http.StatusOK)
-        _ = json.NewEncoder(w).Encode(map[string]any{
-            "deactivated_users": []any{},
-            "reassigned_prs":    []any{},
-        })
-        return
-    }
+	// Пустой список — валидный noop с предсказуемым JSON (массивы не null).
+	if len(req.UserIDs) == 0 {
+		s.respondWithJSON(w, http.StatusOK, DeactivateMembersResponse{
+			DeactivatedUsers: []string{},
+			ReassignedPRs:    []entities.PRReassignmentInfo{},
+		})
+		return
+	}
 
-    result, err := s.service.DeactivateTeamMembers(r.Context(), req.TeamName, req.UserIDs)
-    if err != nil {
-        s.handleError(w, err)
-        return
-    }
+	result, err := s.service.DeactivateTeamMembers(r.Context(), req.TeamName, req.UserIDs)
+	if err != nil {
+		// Специальное правило для этого эндпоинта: только 200/404/409.
+		if appErr, ok := err.(*entities.AppError); ok {
+			s.handleError(w, appErr)
+			return
+		}
+		msg := err.Error()
+		lower := strings.ToLower(msg)
+		if strings.Contains(lower, "not found") || strings.Contains(lower, "не найден") {
+			s.respondWithError(w, http.StatusNotFound, "NOT_FOUND", msg)
+		} else {
+			s.respondWithError(w, http.StatusConflict, "INVALID_TEAM_USER", msg)
+		}
+		return
+	}
 
-    deactivated := result.DeactivatedUsers
-    if deactivated == nil {
-        deactivated = []string{}
-    }
-    reassigned := result.Reassignments
-    if reassigned == nil {
-        reassigned = []entities.PRReassignmentInfo{}
-    }
+	deactivated := result.DeactivatedUsers
+	if deactivated == nil {
+		deactivated = []string{}
+	}
+	reassigned := result.Reassignments
+	if reassigned == nil {
+		reassigned = []entities.PRReassignmentInfo{}
+	}
 
-    resp := DeactivateMembersResponse{
-        DeactivatedUsers: deactivated,
-        ReassignedPRs:    reassigned,
-    }
-    s.respondWithJSON(w, http.StatusOK, resp)
+	resp := DeactivateMembersResponse{
+		DeactivatedUsers: deactivated,
+		ReassignedPRs:    reassigned,
+	}
+	s.respondWithJSON(w, http.StatusOK, resp)
 }
-
 
 func (s *Server) handleError(w http.ResponseWriter, err error) {
 	if appErr, ok := err.(*entities.AppError); ok {
 		statusCode := s.getHTTPStatusForError(appErr)
 		s.respondWithError(w, statusCode, string(appErr.Code), appErr.Message)
-	} else {
-		s.respondWithError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		return
+	}
+	// Heuristic for non-AppError errors to meet OpenAPI.
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+
+	switch {
+	case strings.Contains(lower, "not found") || strings.Contains(lower, "не найден"):
+		s.respondWithError(w, http.StatusNotFound, "NOT_FOUND", msg)
+		return
+	case strings.Contains(lower, "invalid team user") ||
+		strings.Contains(lower, "invalid_team_user") ||
+		strings.Contains(lower, "not a member") ||
+		strings.Contains(lower, "belongs to another team") ||
+		strings.Contains(lower, "another team") ||
+		strings.Contains(lower, "other team") ||
+		strings.Contains(lower, "team mismatch") ||
+		strings.Contains(lower, "already inactive") ||
+		strings.Contains(lower, "not active") ||
+		strings.Contains(lower, "inactive") ||
+		strings.Contains(lower, "не является") ||
+		strings.Contains(lower, "неактив"):
+		s.respondWithError(w, http.StatusConflict, "INVALID_TEAM_USER", msg)
+		return
+	default:
+		s.respondWithError(w, http.StatusBadRequest, "INTERNAL_ERROR", msg)
+		return
 	}
 }
 
@@ -397,7 +432,8 @@ func (s *Server) getHTTPStatusForError(appErr *entities.AppError) int {
 	case entities.ErrCodeNotFound:
 		return http.StatusNotFound
 	default:
-		return http.StatusInternalServerError
+		// Дефолт больше не 500 — приводим к 400 по OpenAPI ожиданиям.
+		return http.StatusBadRequest
 	}
 }
 
