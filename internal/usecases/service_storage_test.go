@@ -36,7 +36,7 @@ func TestCreateTeam_Success(t *testing.T) {
 }
 
 func TestCreateTeam_EmptyTeamName(t *testing.T) {
-	mockStorage := NewMockStorage(t)
+	mockStorage := NewStorage(t)
 	service := &ServiceStorage{storage: mockStorage}
 
 	ctx := context.Background()
@@ -52,7 +52,7 @@ func TestCreateTeam_EmptyTeamName(t *testing.T) {
 }
 
 func TestCreateTeam_NoMembers(t *testing.T) {
-	mockStorage := NewMockStorage(t)
+	mockStorage := NewStorage(t)
 	service := &ServiceStorage{storage: mockStorage}
 
 	ctx := context.Background()
