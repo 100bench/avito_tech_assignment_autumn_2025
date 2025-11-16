@@ -7,6 +7,7 @@ tags:
   - name: Teams
   - name: Users
   - name: PullRequests
+  - name: Stats
   - name: Health
 
 components:
@@ -43,6 +44,8 @@ components:
                 - NOT_ASSIGNED
                 - NO_CANDIDATE
                 - NOT_FOUND
+                - INVALID_TEAM_USER
+                - INTERNAL_ERROR
             message:
               type: string
       example:
@@ -120,6 +123,32 @@ components:
         status:
           type: string
           enum: [OPEN, MERGED]
+    PRReassignmentInfo:
+      type: object
+      required: [pull_request_id, old_reviewer, new_reviewer]
+      properties:
+        pull_request_id:
+          type: string
+        old_reviewer:
+          type: string
+          description: user_id деактивированного ревьювера
+        new_reviewer:
+          type: string
+          description: user_id нового ревьювера (пустая строка если замена не найдена)
+    DeactivateResult:
+      type: object
+      required: [deactivated_users, reassigned_prs]
+      properties:
+        deactivated_users:
+          type: array
+          items:
+            type: string
+          description: Список user_id деактивированных пользователей
+        reassigned_prs:
+          type: array
+          items:
+            $ref: '#/components/schemas/PRReassignmentInfo'
+          description: Информация о переназначенных PR
 
 paths:
   /team/add:
@@ -419,3 +448,108 @@ paths:
                     pull_request_name: Add search
                     author_id: u1
                     status: OPEN
+
+  /stats:
+    get:
+      tags: [Stats]
+      summary: Получить статистику по назначениям ревьюверов и PR
+      responses:
+        '200':
+          description: Статистика системы
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_assignments, pr_stats]
+                properties:
+                  user_assignments:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                    description: Количество назначенных PR для каждого ревьювера (user_id -> count)
+                  pr_stats:
+                    type: object
+                    required: [open, merged]
+                    properties:
+                      open:
+                        type: integer
+                        description: Количество открытых PR
+                      merged:
+                        type: integer
+                        description: Количество смердженных PR
+              example:
+                user_assignments:
+                  u1: 5
+                  u2: 3
+                  u3: 7
+                pr_stats:
+                  open: 10
+                  merged: 25
+
+  /team/deactivateMembers:
+    post:
+      tags: [Teams]
+      summary: Массово деактивировать пользователей команды и переназначить их открытые PR
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_name, user_ids]
+              properties:
+                team_name:
+                  type: string
+                user_ids:
+                  type: array
+                  items:
+                    type: string
+            example:
+              team_name: backend
+              user_ids: [u2, u3]
+      responses:
+        '200':
+          description: Пользователи деактивированы, PR переназначены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeactivateResult'
+              example:
+                deactivated_users: [u2, u3]
+                reassigned_prs:
+                  - pull_request_id: pr-1001
+                    old_reviewer: u2
+                    new_reviewer: u5
+                  - pull_request_id: pr-1002
+                    old_reviewer: u3
+                    new_reviewer: u4
+                  - pull_request_id: pr-1003
+                    old_reviewer: u2
+                    new_reviewer: ""
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              example:
+                error:
+                  code: NOT_FOUND
+                  message: "пользователь 'u99' не найден"
+        '409':
+          description: Пользователь не является активным членом команды
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+              examples:
+                notActiveMember:
+                  summary: Пользователь неактивен или из другой команды
+                  value:
+                    error:
+                      code: INVALID_TEAM_USER
+                      message: "пользователь 'u2' не является активным членом команды 'backend'"
+                wrongTeam:
+                  summary: Пользователь из другой команды
+                  value:
+                    error:
+                      code: INVALID_TEAM_USER
+                      message: "пользователь 'u5' не является членом команды 'backend'"
