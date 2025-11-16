@@ -30,8 +30,6 @@ func (p *PgxStorage) GetUser(ctx context.Context, userID string) (*en.User, erro
 
 func (p *PgxStorage) GetUsersByTeam(ctx context.Context, teamName string, activeOnly bool) ([]*en.User, error) {
 	var q string
-	var args []interface{}
-
 	if activeOnly {
 		q = `
 			SELECT user_id, username, team_name, is_active, created_at, updated_at
@@ -39,7 +37,6 @@ func (p *PgxStorage) GetUsersByTeam(ctx context.Context, teamName string, active
 			WHERE team_name = $1 AND is_active = true
 			ORDER BY user_id
 		`
-		args = []interface{}{teamName}
 	} else {
 		q = `
 			SELECT user_id, username, team_name, is_active, created_at, updated_at
@@ -47,10 +44,11 @@ func (p *PgxStorage) GetUsersByTeam(ctx context.Context, teamName string, active
 			WHERE team_name = $1
 			ORDER BY user_id
 		`
-		args = []interface{}{teamName}
 	}
 
-	rows, err := p.pool.Query(ctx, q, args...)
+	rows, err := p.pool.Query(ctx, q, teamName)
+
+
 	if err != nil {
 		return nil, errors.Wrap(err, "PgxStorage.GetUsersByTeam")
 	}
