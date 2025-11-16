@@ -275,3 +275,29 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// DeactivateTeamMembers массово деактивирует пользователей команды и переназначает их открытые PR
+func (s *ServiceStorage) DeactivateTeamMembers(ctx context.Context, teamName string, userIDs []string) (*en.DeactivateResult, error) {
+	if teamName == "" {
+		return nil, errors.New("team name cannot be empty")
+	}
+	if len(userIDs) == 0 {
+		return nil, errors.New("user IDs cannot be empty")
+	}
+
+	result, err := s.storage.DeactivateTeamMembersWithReassignment(ctx, teamName, userIDs)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to deactivate team members with reassignment")
+	}
+
+	return result, nil
+}
+
+// GetStats возвращает статистику по назначениям ревьюверов и PR
+func (s *ServiceStorage) GetStats(ctx context.Context) (*en.Stats, error) {
+	stats, err := s.storage.GetStats(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get stats")
+	}
+	return stats, nil
+}
