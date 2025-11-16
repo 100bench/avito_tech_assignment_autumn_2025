@@ -52,7 +52,22 @@ func Load() *Config {
 		cfg.HTTPAddr = addr
 	}
 
-	return cfg
+	shutdownTimeout := 30 * time.Second
+	if timeoutStr := os.Getenv("SHUTDOWN_TIMEOUT"); timeoutStr != "" {
+		if parsed, err := time.ParseDuration(timeoutStr); err == nil {
+			shutdownTimeout = parsed
+		}
+	}
+
+	return &Config{
+		PostgresHost:     cfg.PostgresHost,
+		PostgresPort:     cfg.PostgresPort,
+		PostgresUser:     cfg.PostgresUser,
+		PostgresPassword: cfg.PostgresPassword,
+		PostgresDB:       cfg.PostgresDB,
+		HTTPAddr:         cfg.HTTPAddr,
+		ShutdownTimeout:  shutdownTimeout,
+	}
 }
 
 func (c *Config) PostgresDSN() string {
