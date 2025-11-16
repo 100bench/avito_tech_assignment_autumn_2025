@@ -37,13 +37,17 @@ func (s *Server) GetRouter() *chi.Mux {
 func (s *Server) setupRoutes() {
 	s.router.Post("/team/add", s.handleCreateTeam)
 	s.router.Get("/team/get", s.handleGetTeam)
-	
+
 	s.router.Post("/users/setIsActive", s.handleSetUserActive)
 	s.router.Get("/users/getReview", s.handleGetUserReviews)
-	
+
 	s.router.Post("/pullRequest/create", s.handleCreatePR)
 	s.router.Post("/pullRequest/merge", s.handleMergePR)
 	s.router.Post("/pullRequest/reassign", s.handleReassignReviewer)
+
+	s.router.Post("/team/deactivateMembers", s.handleDeactivateMembers)
+
+	s.router.Get("/stats", s.handleGetStats)
 }
 
 type CreateTeamRequest struct {
@@ -305,7 +309,10 @@ func (s *Server) respondWithJSON(w http.ResponseWriter, code int, payload interf
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	w.Write(response)
+	_, err = w.Write(response)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) respondWithError(w http.ResponseWriter, code int, errCode string, message string) {
@@ -316,6 +323,36 @@ func (s *Server) respondWithError(w http.ResponseWriter, code int, errCode strin
 		},
 	}
 	s.respondWithJSON(w, code, resp)
+}
+
+type DeactivateMembersRequest struct {
+	TeamName string   `json:"team_name"`
+	UserIDs  []string `json:"user_ids"`
+}
+
+type DeactivateMembersResponse struct {
+	DeactivatedUsers []string                      `json:"deactivated_users"`
+	ReassignedPRs    []entities.PRReassignmentInfo `json:"reassigned_prs"`
+}
+
+func (s *Server) handleDeactivateMembers(w http.ResponseWriter, r *http.Request) {
+	var req DeactivateMembersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
+
+	result, err := s.service.DeactivateTeamMembers(r.Context(), req.TeamName, req.UserIDs)
+	if err != nil {
+		s.handleError(w, err)
+		return
+	}
+
+	resp := DeactivateMembersResponse{
+		DeactivatedUsers: result.DeactivatedUsers,
+		ReassignedPRs:    result.Reassignments,
+	}
+	s.respondWithJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) handleError(w http.ResponseWriter, err error) {
@@ -340,4 +377,14 @@ func (s *Server) getHTTPStatusForError(appErr *entities.AppError) int {
 	default:
 		return http.StatusInternalServerError
 	}
+}
+
+func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.service.GetStats(r.Context())
+	if err != nil {
+		s.handleError(w, err)
+		return
+	}
+
+	s.respondWithJSON(w, http.StatusOK, stats)
 }
