@@ -16,6 +16,8 @@ WORKDIR /app
 COPY --from=builder /app/server .
 COPY --from=builder /app/deployment/migrations/postgres ./migrations
 
+COPY --from=builder /app/deployment/config ./deployment/config
+
 EXPOSE 8080
 
 CMD ["./server"]

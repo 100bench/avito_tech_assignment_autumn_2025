@@ -2,16 +2,18 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: pr_reviewer_db
+    env_file:
+      - .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: pr_review_db
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-pr_review_db}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -24,14 +26,14 @@ services:
       dockerfile: Dockerfile
     container_name: pr_reviewer_service
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8080}:8080"
+    env_file:
+      - .env
     environment:
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: pr_review_db
-      HTTP_ADDR: ":8080"
+      # Берём все значения из config.yaml, но переопределяем только нужное
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}     # важно для контейнера (не localhost)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}       # секрет из .env
+      # Остальное (порт, пользователь, БД, HTTP_ADDR) возьмётся из YAML
     depends_on:
       postgres:
         condition: service_healthy
