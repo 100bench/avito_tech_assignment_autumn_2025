@@ -1,0 +1,11 @@
+# PR Review Service Configuration
+
+# Database Configuration
+postgres_host: "localhost"
+postgres_port: "5432"
+postgres_user: "postgres"
+# postgres_password: _ # устанавливается из переменной окружения
+postgres_db: "pr_review_db"
+
+# HTTP Server Configuration
+http_addr: ":8080"
