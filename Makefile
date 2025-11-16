@@ -1,4 +1,4 @@
-.PHONY: run build docker-up docker-down docker-logs test integration-test lint lint-fix
+.PHONY: run build docker-up docker-down docker-logs test integration-test lint lint-fix load-test
 
 run:
 	go run cmd/api/main.go
@@ -26,3 +26,9 @@ lint:
 
 lint-fix:
 	golangci-lint run --fix ./...
+
+
+load-test:
+	@echo "Запуск нагрузочного тестирования..."
+	@echo "Убедитесь что сервис запущен на http://localhost:8080"
+	k6 run tests/load/load_test.js
