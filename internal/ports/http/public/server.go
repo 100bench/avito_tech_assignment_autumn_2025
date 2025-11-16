@@ -372,6 +372,8 @@ func (s *Server) getHTTPStatusForError(appErr *entities.AppError) int {
 		return http.StatusConflict
 	case entities.ErrCodePRMerged, entities.ErrCodeNotAssigned, entities.ErrCodeNoCandidate:
 		return http.StatusConflict
+	case entities.ErrCodeInvalidTeamUser:
+		return http.StatusConflict
 	case entities.ErrCodeNotFound:
 		return http.StatusNotFound
 	default:
