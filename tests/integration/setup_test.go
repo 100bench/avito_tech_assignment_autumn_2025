@@ -95,7 +95,7 @@ func (e *TestEnv) Cleanup(t *testing.T) {
 
 func runMigrations(dsn string) error {
 	m, err := migrate.New(
-		"file://../../deployment/migrations",
+		"file://../../deployment/migrations/postgres",
 		dsn,
 	)
 	if err != nil {

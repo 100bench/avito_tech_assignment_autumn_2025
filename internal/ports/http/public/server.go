@@ -325,9 +325,9 @@ func (s *Server) respondWithError(w http.ResponseWriter, code int, errCode strin
 	s.respondWithJSON(w, code, resp)
 }
 
-type DeactivateMembersRequest struct {
-	TeamName string   `json:"team_name"`
-	UserIDs  []string `json:"user_ids"`
+type deactivateMembersRequest struct {
+    TeamName string   `json:"team_name"`
+    UserIDs  []string `json:"user_ids"`
 }
 
 type DeactivateMembersResponse struct {
@@ -336,24 +336,44 @@ type DeactivateMembersResponse struct {
 }
 
 func (s *Server) handleDeactivateMembers(w http.ResponseWriter, r *http.Request) {
-	var req DeactivateMembersRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.respondWithError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
-		return
-	}
+    var req deactivateMembersRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        s.respondWithError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+        return
+    }
 
-	result, err := s.service.DeactivateTeamMembers(r.Context(), req.TeamName, req.UserIDs)
-	if err != nil {
-		s.handleError(w, err)
-		return
-	}
+    // Новое поведение: пустой список — это валидный noop
+    if len(req.UserIDs) == 0 {
+        w.WriteHeader(http.StatusOK)
+        _ = json.NewEncoder(w).Encode(map[string]any{
+            "deactivated_users": []any{},
+            "reassigned_prs":    []any{},
+        })
+        return
+    }
 
-	resp := DeactivateMembersResponse{
-		DeactivatedUsers: result.DeactivatedUsers,
-		ReassignedPRs:    result.Reassignments,
-	}
-	s.respondWithJSON(w, http.StatusOK, resp)
+    result, err := s.service.DeactivateTeamMembers(r.Context(), req.TeamName, req.UserIDs)
+    if err != nil {
+        s.handleError(w, err)
+        return
+    }
+
+    deactivated := result.DeactivatedUsers
+    if deactivated == nil {
+        deactivated = []string{}
+    }
+    reassigned := result.Reassignments
+    if reassigned == nil {
+        reassigned = []entities.PRReassignmentInfo{}
+    }
+
+    resp := DeactivateMembersResponse{
+        DeactivatedUsers: deactivated,
+        ReassignedPRs:    reassigned,
+    }
+    s.respondWithJSON(w, http.StatusOK, resp)
 }
+
 
 func (s *Server) handleError(w http.ResponseWriter, err error) {
 	if appErr, ok := err.(*entities.AppError); ok {

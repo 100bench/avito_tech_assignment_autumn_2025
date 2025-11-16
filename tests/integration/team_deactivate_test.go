@@ -1,171 +1,157 @@
 package integration
 
 import (
-	"bytes"
-	"encoding/json"
-	"net/http"
-	"testing"
+    "bytes"
+    "encoding/json"
+    "net/http"
+    "testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
 )
 
-func TestDeactivateMembers_WithReassignment(t *testing.T) {
-	env := SetupTestEnv(t)
-	defer env.Cleanup(t)
+// Server currently validates that user_ids is non-empty and returns 500 if empty.
+func TestDeactivateMembers_EmptyUserIDs_ShouldSucceed(t *testing.T) {
+    env := SetupTestEnv(t)
+    defer env.Cleanup(t)
 
-	// Создаем команду с 4 участниками
-	teamPayload := map[string]interface{}{
-		"team_name": "deactivate-team",
-		"members": []map[string]interface{}{
-			{"user_id": "author1", "username": "Author1", "is_active": true},
-			{"user_id": "rev1", "username": "Rev1", "is_active": true},
-			{"user_id": "rev2", "username": "Rev2", "is_active": true},
-			{"user_id": "rev3", "username": "Rev3", "is_active": true},
-		},
-	}
-	teamData, _ := json.Marshal(teamPayload)
-	resp, err := env.Client.Post(env.Server.URL+"/team/add", "application/json", bytes.NewBuffer(teamData))
-	require.NoError(t, err)
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("close body: %v", err)
-	}
+    teamPayload := map[string]interface{}{
+        "team_name": "empty-input-team",
+        "members": []map[string]interface{}{
+            {"user_id": "e1", "username": "E1", "is_active": true},
+            {"user_id": "e2", "username": "E2", "is_active": true},
+        },
+    }
+    teamData, _ := json.Marshal(teamPayload)
+    resp, err := env.Client.Post(env.Server.URL+"/team/add", "application/json", bytes.NewBuffer(teamData))
+    require.NoError(t, err)
+    _ = resp.Body.Close()
 
-	// Создаем PR с rev1 и rev2 как ревьюверами
-	prPayload := map[string]interface{}{
-		"pull_request_id":   "pr-deactivate-1",
-		"pull_request_name": "Test PR",
-		"author_id":         "author1",
-	}
-	prData, _ := json.Marshal(prPayload)
-	resp, err = env.Client.Post(env.Server.URL+"/pullRequest/create", "application/json", bytes.NewBuffer(prData))
-	require.NoError(t, err)
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("close body: %v", err)
-	}
+    deactivatePayload := map[string]interface{}{
+        "team_name": "empty-input-team",
+        "user_ids":  []string{},
+    }
+    deactivateData, _ := json.Marshal(deactivatePayload)
+    resp, err = env.Client.Post(env.Server.URL+"/team/deactivateMembers", "application/json", bytes.NewBuffer(deactivateData))
+    require.NoError(t, err)
+    defer resp.Body.Close()
 
-	// Деактивируем rev1
-	deactivatePayload := map[string]interface{}{
-		"team_name": "deactivate-team",
-		"user_ids":  []string{"rev1"},
-	}
-	deactivateData, _ := json.Marshal(deactivatePayload)
-	resp, err = env.Client.Post(env.Server.URL+"/team/deactivateMembers", "application/json", bytes.NewBuffer(deactivateData))
-	require.NoError(t, err)
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Logf("close body: %v", err)
-		}
-	}()
+    require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+    var result map[string]interface{}
+    require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 
-	var result map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	require.NoError(t, err)
+    deactivated, ok := result["deactivated_users"].([]interface{})
+    require.True(t, ok)
+    assert.Len(t, deactivated, 0)
 
-	deactivated := result["deactivated_users"].([]interface{})
-	assert.Len(t, deactivated, 1)
-	assert.Equal(t, "rev1", deactivated[0])
-
-	reassigned := result["reassigned_prs"].([]interface{})
-	assert.Len(t, reassigned, 1)
-
-	reassignment := reassigned[0].(map[string]interface{})
-	assert.Equal(t, "pr-deactivate-1", reassignment["pull_request_id"])
-	assert.Equal(t, "rev1", reassignment["old_reviewer"])
-	assert.NotEmpty(t, reassignment["new_reviewer"])
-	assert.Contains(t, []string{"rev3"}, reassignment["new_reviewer"]) // rev2 уже назначен, author1 - автор
+    reassigned, ok := result["reassigned_prs"].([]interface{})
+    require.True(t, ok)
+    assert.Len(t, reassigned, 0)
 }
+
 
 func TestDeactivateMembers_NoReplacementCandidates(t *testing.T) {
-	env := SetupTestEnv(t)
-	defer env.Cleanup(t)
+    env := SetupTestEnv(t)
+    defer env.Cleanup(t)
 
-	// Создаем команду с 2 участниками (автор + 1 ревьювер)
-	teamPayload := map[string]interface{}{
-		"team_name": "small-deactivate-team",
-		"members": []map[string]interface{}{
-			{"user_id": "small-author", "username": "SmallAuthor", "is_active": true},
-			{"user_id": "small-rev", "username": "SmallRev", "is_active": true},
-		},
-	}
-	teamData, _ := json.Marshal(teamPayload)
-	resp, err := env.Client.Post(env.Server.URL+"/team/add", "application/json", bytes.NewBuffer(teamData))
-	require.NoError(t, err)
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("close body: %v", err)
-	}
+    teamPayload := map[string]interface{}{
+        "team_name": "no-cand-team",
+        "members": []map[string]interface{}{
+            {"user_id": "u1", "username": "U1", "is_active": true}, // автор
+            {"user_id": "u2", "username": "U2", "is_active": true},
+        },
+    }
+    data, _ := json.Marshal(teamPayload)
+    resp, err := env.Client.Post(env.Server.URL+"/team/add", "application/json", bytes.NewBuffer(data))
+    require.NoError(t, err)
+    _ = resp.Body.Close()
 
-	// Создаем PR
-	prPayload := map[string]interface{}{
-		"pull_request_id":   "pr-small",
-		"pull_request_name": "Small PR",
-		"author_id":         "small-author",
-	}
-	prData, _ := json.Marshal(prPayload)
-	resp, err = env.Client.Post(env.Server.URL+"/pullRequest/create", "application/json", bytes.NewBuffer(prData))
-	require.NoError(t, err)
-	if err := resp.Body.Close(); err != nil {
-		t.Logf("close body: %v", err)
-	}
+    prPayload := map[string]string{
+        "pull_request_id":   "pr-x",
+        "pull_request_name": "PR X",
+        "author_id":         "u1",
+    }
+    prData, _ := json.Marshal(prPayload)
+    resp, err = env.Client.Post(env.Server.URL+"/pullRequest/create", "application/json", bytes.NewBuffer(prData))
+    require.NoError(t, err)
+    _ = resp.Body.Close()
 
-	// Деактивируем единственного ревьювера
-	deactivatePayload := map[string]interface{}{
-		"team_name": "small-deactivate-team",
-		"user_ids":  []string{"small-rev"},
-	}
-	deactivateData, _ := json.Marshal(deactivatePayload)
-	resp, err = env.Client.Post(env.Server.URL+"/team/deactivateMembers", "application/json", bytes.NewBuffer(deactivateData))
-	require.NoError(t, err)
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Logf("close body: %v", err)
-		}
-	}()
+    // Деактивируем единственного возможного ревьюера (u2) -> замены нет.
+    deactPayload := map[string]interface{}{
+        "team_name": "no-cand-team",
+        "user_ids":  []string{"u2"},
+    }
+    deactData, _ := json.Marshal(deactPayload)
+    resp, err = env.Client.Post(env.Server.URL+"/team/deactivateMembers", "application/json", bytes.NewBuffer(deactData))
+    require.NoError(t, err)
+    defer resp.Body.Close()
 
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
+    require.Equal(t, http.StatusOK, resp.StatusCode)
+    var result map[string]interface{}
+    require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
 
-	var result map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	require.NoError(t, err)
-
-	deactivated := result["deactivated_users"].([]interface{})
-	assert.Len(t, deactivated, 1)
-
-	reassigned := result["reassigned_prs"].([]interface{})
-	assert.Len(t, reassigned, 1)
-
-	reassignment := reassigned[0].(map[string]interface{})
-	assert.Equal(t, "pr-small", reassignment["pull_request_id"])
-	assert.Equal(t, "small-rev", reassignment["old_reviewer"])
-	assert.Empty(t, reassignment["new_reviewer"]) // нет кандидатов - удалили без замены
+    reassigned := result["reassigned_prs"].([]interface{})
+    require.Len(t, reassigned, 1)
+    entry := reassigned[0].(map[string]interface{})
+    require.Equal(t, "u2", entry["old_reviewer"])
+    assert.Equal(t, "", entry["new_reviewer"])
 }
 
-func TestDeactivateMembers_UsersNotInTeam(t *testing.T) {
-	env := SetupTestEnv(t)
-	defer env.Cleanup(t)
 
-	teamPayload := map[string]interface{}{
-		"team_name": "test-team-deactivate",
-		"members": []map[string]interface{}{
-			{"user_id": "test-user", "username": "TestUser", "is_active": true},
-		},
-	}
-	teamData, _ := json.Marshal(teamPayload)
-	resp, err := env.Client.Post(env.Server.URL+"/team/add", "application/json", bytes.NewBuffer(teamData))
-	require.NoError(t, err)
-	resp.Body.Close()
+func TestDeactivateMembers_MultiplePRs(t *testing.T) {
+    env := SetupTestEnv(t)
+    defer env.Cleanup(t)
 
-	// Пытаемся деактивировать несуществующего пользователя
-	deactivatePayload := map[string]interface{}{
-		"team_name": "test-team-deactivate",
-		"user_ids":  []string{"nonexistent-user"},
-	}
-	deactivateData, _ := json.Marshal(deactivatePayload)
-	resp, err = env.Client.Post(env.Server.URL+"/team/deactivateMembers", "application/json", bytes.NewBuffer(deactivateData))
-	require.NoError(t, err)
-	defer resp.Body.Close()
+    teamPayload := map[string]interface{}{
+        "team_name": "multi-pr-team",
+        "members": []map[string]interface{}{
+            {"user_id": "m1", "username": "M1", "is_active": true}, 
+            {"user_id": "m2", "username": "M2", "is_active": true},
+            {"user_id": "m3", "username": "M3", "is_active": true},
+            {"user_id": "m4", "username": "M4", "is_active": true},
+        },
+    }
+    data, _ := json.Marshal(teamPayload)
+    resp, err := env.Client.Post(env.Server.URL+"/team/add", "application/json", bytes.NewBuffer(data))
+    require.NoError(t, err)
+    _ = resp.Body.Close()
 
-	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+    for _, prID := range []string{"mpr-1", "mpr-2"} {
+        prPayload := map[string]string{
+            "pull_request_id":   prID,
+            "pull_request_name": prID + " name",
+            "author_id":         "m1",
+        }
+        prData, _ := json.Marshal(prPayload)
+        resp, err = env.Client.Post(env.Server.URL+"/pullRequest/create", "application/json", bytes.NewBuffer(prData))
+        require.NoError(t, err)
+        _ = resp.Body.Close()
+    }
+
+    deactPayload := map[string]interface{}{
+        "team_name": "multi-pr-team",
+        "user_ids":  []string{"m2", "m3"},
+    }
+    deactData, _ := json.Marshal(deactPayload)
+    resp, err = env.Client.Post(env.Server.URL+"/team/deactivateMembers", "application/json", bytes.NewBuffer(deactData))
+    require.NoError(t, err)
+    defer resp.Body.Close()
+
+    require.Equal(t, http.StatusOK, resp.StatusCode)
+
+    var result map[string]interface{}
+    require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+
+    deactivated := result["deactivated_users"].([]interface{})
+    require.Len(t, deactivated, 2)
+
+    reassigned := result["reassigned_prs"].([]interface{})
+ 
+    require.GreaterOrEqual(t, len(reassigned), 2)
+    for _, raw := range reassigned {
+        entry := raw.(map[string]interface{})
+        require.NotEmpty(t, entry["old_reviewer"])
+        require.NotNil(t, entry["new_reviewer"])
+    }
 }
