@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/jackc/pgx/v4/stdlib"
 
@@ -21,28 +23,29 @@ import (
 )
 
 func RunApp() error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	cfg := config.Load()
 
 	if err := runMigrations(cfg.PostgresDSN()); err != nil {
 		return errors.Wrap(err, "failed to run migrations")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	storage, err := postgres.NewPgxClient(ctx, cfg.PostgresDSN())
 	if err != nil {
 		return errors.Wrap(err, "postgres.NewPgxClient")
 	}
-	defer storage.Close()
 
 	service, err := usecases.NewServiceStorage(storage)
 	if err != nil {
+		storage.Close()
 		return errors.Wrap(err, "usecases.NewServiceStorage")
 	}
 
 	server, err := public.NewServer(service)
 	if err != nil {
+		storage.Close()
 		return errors.Wrap(err, "public.NewServer")
 	}
 
@@ -56,6 +59,7 @@ func RunApp() error {
 
 	errChan := make(chan error, 1)
 	go func() {
+		log.Printf("Starting HTTP server on %s", cfg.HTTPAddr)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errChan <- err
 		}
@@ -63,15 +67,37 @@ func RunApp() error {
 
 	select {
 	case err := <-errChan:
+		cancel()
+		storage.Close()
 		return errors.Wrap(err, "http server error")
-	case <-stop:
-		ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-		defer cancelShutdown()
+	case sig := <-stop:
+		log.Printf("Received signal: %v. Starting graceful shutdown...", sig)
 
-		if err := httpServer.Shutdown(ctxShutdown); err != nil {
+		// Отменяем основной контекст
+		cancel()
+
+		// Создаём контекст для shutdown с таймаутом
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		defer shutdownCancel()
+
+		// Останавливаем HTTP сервер
+		log.Println("Shutting down HTTP server...")
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
+			storage.Close()
 			return errors.Wrap(err, "server shutdown failed")
 		}
+		log.Println("HTTP server stopped")
 
+		// Даём время на завершение активных операций с БД
+		time.Sleep(100 * time.Millisecond)
+
+		// Закрываем соединение с БД
+		log.Println("Closing database connection...")
+		storage.Close()
+		log.Println("Database connection closed")
+
+		log.Println("Graceful shutdown completed")
 		return nil
 	}
 }
@@ -85,14 +111,14 @@ func runMigrations(dsn string) error {
 		return err
 	}
 	defer func() {
-    	sourceErr , DbErr := m.Close()
-        if DbErr != nil && err == nil {
-            err = DbErr
-        }
+		sourceErr, dbErr := m.Close()
+		if dbErr != nil && err == nil {
+			err = dbErr
+		}
 		if sourceErr != nil && err == nil {
-            err = sourceErr
-        }
-    }()
+			err = sourceErr
+		}
+	}()
 
 	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
 		return err
