@@ -15,7 +15,7 @@ func (p *PgxStorage) CreatePRWithReviewers(ctx context.Context, pr *en.PullReque
 	if err != nil {
 		return errors.Wrap(err, "PgxStorage.CreatePRWithReviewers.BeginTx")
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const qPR = `
 		INSERT INTO pull_requests (pull_request_id, pull_request_name, author_id, status, created_at, merged_at)

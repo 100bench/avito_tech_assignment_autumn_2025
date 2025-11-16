@@ -14,7 +14,7 @@ func (p *PgxStorage) ReassignReviewer(ctx context.Context, prID string, oldUserI
 	if err != nil {
 		return errors.Wrap(err, "PgxStorage.ReassignReviewer.BeginTx")
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const qLock = `SELECT pull_request_id FROM pull_requests WHERE pull_request_id = $1 FOR UPDATE`
 	var lockedPRID string

@@ -14,7 +14,7 @@ func (p *PgxStorage) CreateTeamWithUsers(ctx context.Context, teamName string, u
 	if err != nil {
 		return errors.Wrap(err, "PgxStorage.CreateTeamWithUsers.BeginTx")
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	const qTeam = `INSERT INTO teams (team_name) VALUES ($1)`
 	_, err = tx.Exec(ctx, qTeam, teamName)
@@ -25,8 +25,8 @@ func (p *PgxStorage) CreateTeamWithUsers(ctx context.Context, teamName string, u
 	const qUser = `
 		INSERT INTO users (user_id, username, team_name, is_active)
 		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (user_id) 
-		DO UPDATE SET 
+		ON CONFLICT (user_id)
+		DO UPDATE SET
 			team_name = EXCLUDED.team_name,
 			is_active = EXCLUDED.is_active,
 			updated_at = NOW()

@@ -48,7 +48,6 @@ func (p *PgxStorage) GetUsersByTeam(ctx context.Context, teamName string, active
 
 	rows, err := p.pool.Query(ctx, q, teamName)
 
-
 	if err != nil {
 		return nil, errors.Wrap(err, "PgxStorage.GetUsersByTeam")
 	}

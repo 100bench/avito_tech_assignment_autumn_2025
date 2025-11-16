@@ -23,6 +23,52 @@ func (p *PgxStorage) DeactivateTeamMembersWithReassignment(ctx context.Context, 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Проверяем существование пользователей и их принадлежность к команде
+	const qCheckUsers = `
+		SELECT user_id, team_name, is_active
+		FROM users
+		WHERE user_id = ANY($1)`
+	checkRows, err := tx.Query(ctx, qCheckUsers, userIDs)
+	if err != nil {
+		return nil, errors.Wrap(err, "check users")
+	}
+
+	foundUsers := make(map[string]*struct {
+		teamName string
+		isActive bool
+	})
+	for checkRows.Next() {
+		var uid, team string
+		var active bool
+		if err := checkRows.Scan(&uid, &team, &active); err != nil {
+			checkRows.Close()
+			return nil, errors.Wrap(err, "scan user check")
+		}
+		foundUsers[uid] = &struct {
+			teamName string
+			isActive bool
+		}{teamName: team, isActive: active}
+	}
+	checkRows.Close()
+
+	// Проверяем каждого пользователя
+	for _, uid := range userIDs {
+		user, found := foundUsers[uid]
+		if !found {
+			// Пользователь не найден в БД вообще -> 404
+			return nil, en.NewNotFoundError("user", uid)
+		}
+		if user.teamName != teamName {
+			// Пользователь принадлежит другой команде -> 409
+			return nil, en.NewInvalidTeamUserError(uid, teamName, "does not belong to")
+		}
+		if !user.isActive {
+			// Пользователь уже неактивен -> 409
+			return nil, en.NewInvalidTeamUserError(uid, teamName, "is not an active member of")
+		}
+	}
+
+	// Загружаем всех активных членов команды для переназначения
 	const qMembers = `
 		SELECT user_id, username, team_name, is_active, created_at, updated_at
 		FROM users
@@ -43,16 +89,6 @@ func (p *PgxStorage) DeactivateTeamMembersWithReassignment(ctx context.Context, 
 		allActive = append(allActive, &u)
 	}
 	rows.Close()
-
-	activeSet := make(map[string]bool, len(allActive))
-	for _, m := range allActive {
-		activeSet[m.UserID] = true
-	}
-	for _, uid := range userIDs {
-		if !activeSet[uid] {
-			return nil, errors.Errorf("user %s is not an active member of team %s", uid, teamName)
-		}
-	}
 
 	const qPRs = `
 		SELECT DISTINCT pr.pull_request_id, pr.pull_request_name, pr.author_id, pr.status, pr.created_at, pr.merged_at
