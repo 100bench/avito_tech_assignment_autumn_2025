@@ -269,13 +269,6 @@ func contains(slice []string, item string) bool {
 	return false
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // DeactivateTeamMembers массово деактивирует пользователей команды и переназначает их открытые PR
 func (s *ServiceStorage) DeactivateTeamMembers(ctx context.Context, teamName string, userIDs []string) (*en.DeactivateResult, error) {
 	if teamName == "" {
