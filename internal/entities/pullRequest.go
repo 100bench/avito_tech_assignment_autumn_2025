@@ -5,8 +5,8 @@ import "time"
 type PRStatus string
 
 const (
-    StatusOpen   PRStatus = "OPEN"
-    StatusMerged PRStatus = "MERGED"
+	StatusOpen   PRStatus = "OPEN"
+	StatusMerged PRStatus = "MERGED"
 )
 
 type PullRequest struct {
