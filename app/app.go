@@ -104,7 +104,7 @@ func RunApp() error {
 
 func runMigrations(dsn string) error {
 	m, err := migrate.New(
-		"file://migrations",
+		"file://deployment/migrations/postgres",
 		dsn,
 	)
 	if err != nil {
