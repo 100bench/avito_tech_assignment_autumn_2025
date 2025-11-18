@@ -6,7 +6,7 @@ services:
       - .env
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-pr_review_db}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -27,12 +27,11 @@ services:
     container_name: pr_reviewer_service
     ports:
       - "${APP_PORT:-8080}:8080"
-    env_file:
-      - .env
+
     environment:
       # Берём все значения из config.yaml, но переопределяем только нужное
-      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}     # важно для контейнера (не localhost)
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}       # секрет из .env
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}       # секрет из .env
       # Остальное (порт, пользователь, БД, HTTP_ADDR) возьмётся из YAML
     depends_on:
       postgres:
